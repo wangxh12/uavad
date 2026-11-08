@@ -1,0 +1,34 @@
+#!/bin/bash
+
+python run.py \
+	--model PatchTST \
+    --task_name forecast \
+    --is_training 0 \
+    --model_id ALFA_Roll_1sigma_rho06 \
+	--seq_len 9 \
+	--pred_len 1 \
+	--enc_in 17 \
+	--c_out 1 \
+	--patch_len 4 \
+	--stride 2 \
+	--d_model 64 \
+	--n_heads 4 \
+	--e_layers 2 \
+	--d_ff 128 \
+    --data ALFA \
+    --root_path ./datasets/alfa_forecast1107/ \
+    --features MS \
+    --target field.measured.roll \
+    --dropout 0.1 \
+    --batch_size 32 \
+    --train_epochs 30 \
+    --patience 3 \
+    --learning_rate 0.0001 \
+    --anomaly_ratio 1.0 \
+    --num_workers 0 \
+    --itr 1 \
+    --des test \
+	--use_biaewma \
+	--smooth_rho 0.9 \
+	--threshold_method 3sigma \
+	--threshold_sigma 1.0

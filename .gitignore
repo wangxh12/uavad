@@ -1,3 +1,13 @@
+# vscode
+.vscode
+
+# custom
+logs/
+tests/
+results_dir/
+data/
+AGENTS.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -147,7 +157,9 @@ dmypy.json
 
 /scripts/long_term_forecast/ETT_tv_script/
 /dataset/
-/data/
+/data/*
+/datasets
+!/data/*.py
 data_factory_all.py
 data_loader_all.py
 /scripts/short_term_forecast/tv_script/
