@@ -3,7 +3,7 @@
 python run.py \
     --task_name forecast \
     --is_training 1 \
-    --model_id ALFA_Roll_1sigma_rho06 \
+    --model_id ALFA_Roll_minmax_biaewma \
     --model STC_LSTM \
     --data ALFA \
     --root_path ./datasets/alfa_forecast1107/ \
@@ -25,8 +25,10 @@ python run.py \
     --learning_rate 0.0001 \
     --anomaly_ratio 1.0 \
     --num_workers 0 \
+	--scaler minmax \
     --itr 1 \
     --des test \
+	--use_biaewma \
 	--smooth_rho 0.9 \
 	--threshold_method 3sigma \
 	--threshold_sigma 1.0

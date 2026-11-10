@@ -11,7 +11,7 @@ from utils.timefeatures import time_features
 
 class Dataset_ALFA_Forecast(Dataset):
     def __init__(self, root_path, flag='train', size=None, features='MS',
-                 target='field.measured.roll', scale='standard', timeenc=0, freq='h', step=1, args=None):
+                 target='field.measured.roll', scaler='standard', timeenc=0, freq='h', step=1, args=None):
         # size [seq_len, label_len, pred_len]
         assert flag in ['train', 'test', 'val']
         type_map = {'train': 0, 'val': 1, 'test': 2}
@@ -26,9 +26,9 @@ class Dataset_ALFA_Forecast(Dataset):
         self.step = step
         self.args = args
         
-        if scale == 'standard':
+        if scaler == 'standard':
             self.scaler = StandardScaler()
-        elif scale == 'minmax':
+        elif scaler == 'minmax':
             self.scaler = MinMaxScaler()
         else:
             self.scaler = None
@@ -111,7 +111,7 @@ class Dataset_ALFA_Forecast(Dataset):
 class Dataset_ALFA_Reconstruction(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                 features='M', target='field.measured.roll',
-                scale='standard', timeenc=0, freq='h', step=1, args=None):
+                scaler='standard', timeenc=0, freq='h', step=1, args=None):
         
         assert flag in ['train', 'val', 'test']
         self.flag = flag
@@ -128,9 +128,9 @@ class Dataset_ALFA_Reconstruction(Dataset):
         self.root_path = root_path
         self.args = args
 
-        if scale == 'standard':
+        if scaler == 'standard':
             self.scaler = StandardScaler()
-        elif scale == 'minmax':
+        elif scaler == 'minmax':
             self.scaler = MinMaxScaler()
         else:
             self.scaler = None

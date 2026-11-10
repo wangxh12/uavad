@@ -36,6 +36,8 @@ def get_args(argv=None):
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
 
+    parser.add_argument("--scaler", choices=["standard", "minmax"], default="standard")
+
     # Task configuration
     parser.add_argument("--seq_len", type=int, default=9, help="Input length for both tasks")
     parser.add_argument("--label_len", type=int, default=0, help="Decoder known-context length, if applicable")

@@ -17,7 +17,7 @@ def data_provider(args, flag):
         size=[args.seq_len, args.label_len, args.pred_len],
         features=args.features,
         target=args.target,
-        scale=getattr(args, 'scale', 'standard'),
+        scaler=getattr(args, 'scaler', 'standard'),
         timeenc=timeenc,
         freq=getattr(args, 'freq', 'h'),
         step=args.step,
