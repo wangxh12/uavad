@@ -110,29 +110,18 @@ def get_args(argv=None):
     # TimeCNN
     parser.add_argument('--conv_dropout', type=float, default=0.0)
     parser.add_argument('--use_norm', type=int, default=1)
+    
+    # FACT
+    parser.add_argument('--core', type=float, default=0.5)
+    parser.add_argument('--dilation', type=int, nargs='+', default=[1, 2])
+    # parser.add_argument('--num_kernels', type=int, default=3)
 
     args = parser.parse_args(argv)
-
-    if args.seq_len <= 0 or args.enc_in <= 0 or args.itr <= 0:
-        parser.error("seq_len, enc_in, and itr must all be positive")
-    if min(args.batch_size, args.step, args.train_epochs, args.patience) <= 0:
-        parser.error("batch_size, step, train_epochs, and patience must all be positive")
-    if args.num_workers < 0 or args.run_idx < 0:
-        parser.error("num_workers and run_idx must be nonnegative")
-    if args.task_name == "forecast" and args.pred_len <= 0:
-        parser.error("forecast requires pred_len > 0")
-    if not (0 <= args.anomaly_ratio <= 100):
-        parser.error("anomaly_ratio must be a percentage between 0 and 100")
 
     if args.dec_in is None:
         args.dec_in = args.enc_in
     if args.c_out is None:
         args.c_out = args.enc_in
-    if args.task_name == "anomaly_detection":
-        if args.features != "M":
-            parser.error("anomaly_detection reconstructs all channels and requires --features M")
-        if args.c_out != args.enc_in:
-            parser.error("anomaly_detection requires c_out to equal enc_in")
 
     # For reconstruction, model output should match the seq_len input.
     # pred_len is a forecast-only parameter and is not forcibly overwritten.

@@ -1,0 +1,27 @@
+
+python -u run.py \
+  --task_name forecast \
+  --is_training 1 \
+  --model_id ALFA_FACT \
+  --model FACT \
+  --data ALFA \
+  --root_path datasets/ALFA/forecast/alfa_20hz_roll_bias8_v1 \
+  --features MS \
+  --target field.measured.roll \
+  --seq_len 9 \
+  --label_len 0 \
+  --pred_len 1 \
+  --enc_in 18 \
+  --c_out 1 \
+  --d_model 32 \
+  --d_ff 64 \
+  --dropout 0.1 \
+  --core 0.5 \
+  --dilation 1 2 \
+  --num_kernels 3 \
+  --use_norm 0 \
+  --batch_size 32 \
+  --learning_rate 0.001 \
+  --train_epochs 100 \
+  --patience 5 \
+  --num_workers 0

@@ -186,7 +186,12 @@ class Exp_Forecasting(Exp_Basic):
         
 
         # No cross-split overlap: first prediction corresponds to test row seq_len.
-        labels = pd.read_csv(os.path.join(self.args.root_path, 'label.csv')).iloc[:, 0].to_numpy()
+        label_path = os.path.join(self.args.root_path, 'label.csv')
+        if os.path.exists(label_path):
+            labels = pd.read_csv(label_path).iloc[:, 0].to_numpy()
+        else:
+            test_frame = pd.read_csv(os.path.join(self.args.root_path, 'test.csv'))
+            labels = test_frame['label'].to_numpy()
         
         labels = (labels[self.args.seq_len:] != 0).astype(np.int64)
         if len(labels) != len(test_scores):
@@ -247,7 +252,6 @@ class Exp_Forecasting(Exp_Basic):
             print(f'{key}: {value:.6f}')
 
         return metrics
-
             
     
     def plot_forecast_results(self, preds, trues, scores, threshold, labels,
