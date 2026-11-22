@@ -1,9 +1,14 @@
 # vscode
 .vscode
+docs
+tests
 
 # custom
 logs/
 tests/
+!/tests/
+/tests/*
+!/tests/test_process_alfa_20hz.py
 results_dir/
 data/
 AGENTS.md
@@ -159,6 +164,11 @@ dmypy.json
 /dataset/
 /data/*
 /datasets
+!/datasets/
+/datasets/*
+!/datasets/scripts/
+/datasets/scripts/*
+!/datasets/scripts/process_alfa_20hz.py
 !/data/*.py
 data_factory_all.py
 data_loader_all.py

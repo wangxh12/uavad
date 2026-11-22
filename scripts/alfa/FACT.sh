@@ -1,7 +1,7 @@
 
 python -u run.py \
   --task_name forecast \
-  --is_training 1 \
+  --is_training 0 \
   --model_id ALFA_FACT \
   --model FACT \
   --data ALFA \
@@ -24,4 +24,6 @@ python -u run.py \
   --learning_rate 0.001 \
   --train_epochs 100 \
   --patience 5 \
-  --num_workers 0
+  --num_workers 0 \
+  --use_biaewma \
+  --smooth_rho 0.1

@@ -211,9 +211,89 @@ class Dataset_ALFA_Reconstruction(Dataset):
 
 
 
+class PreTrainSegLoader(Dataset):
+    def __init__(self, root_path, seq_len, pred_len, stride, flag='train'):
+        self.seq_len = seq_len
+        self.data_list = []
+        self.label_list = []
+        self.starts_list = []
+        self.n_window_list = [0]
+
+        for path in sorted((Path(root_path) / flag).glob('*.csv')):
+            frame = pd.read_csv(path)
+            # Select input features and labels.
+            data = frame.iloc[:, 1:-1].to_numpy(dtype=np.float32)
+            labels = frame.iloc[:, -1].to_numpy(dtype=np.float32)[:, None]
+            starts = np.arange(0, len(frame) - seq_len + 1, stride)
+
+            if len(starts) == 0:
+                continue
+
+            self.data_list.append(data)
+            self.label_list.append(labels)
+            self.starts_list.append(starts)
+            self.n_window_list.append(
+                self.n_window_list[-1] + len(starts) * data.shape[1]
+            )
+
+        self.n_window_list = np.asarray(self.n_window_list)
+
+    def __len__(self):
+        return int(self.n_window_list[-1])
+
+    def __getitem__(self, index):
+        file_id = np.searchsorted(
+            self.n_window_list, index, side='right'
+        ) - 1
+
+        local_index = index - self.n_window_list[file_id]
+        channel, window = divmod(
+            local_index, len(self.starts_list[file_id])
+        )
+
+        start = self.starts_list[file_id][window]
+        end = start + self.seq_len
+
+        seq_x = self.data_list[file_id][start:end, channel:channel + 1]
+        lab_y = self.label_list[file_id][start:end]
+
+        return seq_x, lab_y
 
 
 
+
+class EvalSegLoader(Dataset):
+    def __init__(self, data_path, seq_len, flag='test'):
+        self.data = []
+        self.labels = []
+        self.flight_lengths = []
+
+        for path in sorted((Path(data_path) / flag).glob('*.csv')):
+            frame = pd.read_csv(path)
+            windows = len(frame) // seq_len
+
+            if windows == 0:
+                continue
+
+            end = windows * seq_len
+            self.data.append(
+                frame.iloc[:end, 1:-1].to_numpy(np.float32)
+                .reshape(windows, seq_len, -1)
+            )
+            self.labels.append(
+                frame.iloc[:end, -1].to_numpy(np.int64)
+                .reshape(windows, seq_len)
+            )
+            self.flight_lengths.append(end)
+
+        self.data = np.concatenate(self.data)
+        self.labels = np.concatenate(self.labels)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index], self.labels[index]
 
 
 
@@ -524,3 +604,215 @@ class PSMSegLoader(Dataset):
             return np.float32(self.test[
                               index // self.step * self.win_size:index // self.step * self.win_size + self.win_size]), np.float32(
                 self.test_labels[index // self.step * self.win_size:index // self.step * self.win_size + self.win_size])
+
+
+
+
+
+class PreTrainSegLoader(Dataset):
+    def __init__(self, data_path, seq_len, pred_len, stride, flag="train", split=0.8):
+        # init
+        assert flag in ['train', 'val', 'test', 'init']
+        type_map = {'train': 0, 'val': 1, 'test': 2, 'init': 3}
+        self.set_type = type_map[flag]
+        self.data_path = data_path
+        self.flag = flag
+        self.stride = stride     # default stride 1
+        self.seq_len = seq_len
+        self.pred_len = pred_len
+        self.stride = stride
+        self.split = split
+        # self.shuffle = shuffle
+        self.data_list = []
+        self.label_list = []
+        self.n_window_list = []
+
+        # TAB: index column name of the metadata
+        self._INDEX_COL = "file_name"
+        # TAB: name of the data folder
+        self._DATA_FOLDER_NAME = "data"
+        # # TAB: name of the covariates folder
+        # self._COVARIATES_FOLDER_NAME = "covariates"
+        # TAB: index column name of the metadata
+        self._INDEX_COL = "file_name"
+
+        # 1.read data
+        self.__read_data__()
+
+    
+    def update_meta_index(self) -> pd.DataFrame:
+        """
+        Check if there are any user-added dataset files in the dataset folder
+
+        Attempt to register them in the metadata and load metadata from a local csv file
+
+        :return: metadata
+        :rtype: pd.DataFrame
+        """
+
+        metadata = pd.read_csv(self.metadata_path)
+        metadata.set_index(self._INDEX_COL, drop=False, inplace=True)
+        return metadata
+
+    def is_st(self, data: pd.DataFrame) -> bool:
+        """
+        Checks if data of the CSV file are in spatial-temporal format.
+
+        :param data: The series data.
+        :return: Are all values in 'cols' column are in spatial-temporal format.
+        """
+        return data.shape[1] == 4
+
+    def process_data_df(self, data: pd.DataFrame, nrows=None) -> pd.DataFrame:
+        """
+        Read the data file and return DataFrame.
+
+        According to the provided file path, read the data file and return the corresponding DataFrame.
+
+        :param data: Data frame to read.
+        :return: The DataFrame of the content of the data file.
+        """
+        label_exists = "label" in data["cols"].values
+
+        all_points = data.shape[0]
+
+        columns = data.columns
+
+        if columns[0] == "date":
+            n_points = data.iloc[:, 2].value_counts().max()
+        else:
+            n_points = data.iloc[:, 1].value_counts().max()
+
+        is_univariate = n_points == all_points
+
+        n_cols = all_points // n_points
+        df = pd.DataFrame()
+
+        cols_name = data["cols"].unique()
+
+        if columns[0] == "date" and not is_univariate:
+            df["date"] = data.iloc[:n_points, 0]
+            col_data = {
+                cols_name[j]: data.iloc[j * n_points : (j + 1) * n_points, 1].tolist()
+                for j in range(n_cols)
+            }
+            df = pd.concat([df, pd.DataFrame(col_data)], axis=1)
+            df["date"] = pd.to_datetime(df["date"])
+            df.set_index("date", inplace=True)
+
+        elif columns[0] != "date" and not is_univariate:
+            col_data = {
+                cols_name[j]: data.iloc[j * n_points : (j + 1) * n_points, 0].tolist()
+                for j in range(n_cols)
+            }
+            df = pd.concat([df, pd.DataFrame(col_data)], axis=1)
+
+        elif columns[0] == "date" and is_univariate:
+            df["date"] = data.iloc[:, 0]
+            df[cols_name[0]] = data.iloc[:, 1]
+
+            df["date"] = pd.to_datetime(df["date"])
+            df.set_index("date", inplace=True)
+
+        else:
+            df[cols_name[0]] = data.iloc[:, 0]
+
+        if label_exists:
+            # Get the column name of the last column
+            last_col_name = df.columns[-1]
+            # Renaming the last column as "label"
+            df.rename(columns={last_col_name: "label"}, inplace=True)
+
+        if nrows is not None and isinstance(nrows, int) and df.shape[0] >= nrows:
+            df = df.iloc[:nrows, :]
+        
+        return df
+
+
+    def process_data_np(self, df: pd.DataFrame, nrows=None) -> np.ndarray:
+        """
+        Convert spatial-temporal data from a DataFrame
+
+        to a three-dimensional(time stamp,feature,sensor)  numpy array.
+
+        :param df: Spatial-temporal data.
+        :param nrows: Optional, number of rows to retain. Default is None, retaining all rows.
+        :return: Three-dimensional(time stamp,feature,sensor) numpy array of the spatial temporal data.
+        """
+        pivot_df = df.pivot_table(index="date", columns=["id", "cols"], values="data")
+
+        sensors = df["id"].unique()
+        features = df["cols"].unique()
+        pivot_df = pivot_df.reindex(
+            columns=pd.MultiIndex.from_product([sensors, features]), fill_value=np.nan
+        )
+
+        data_np = pivot_df.to_numpy().reshape(len(pivot_df), len(sensors), len(features))
+        data_np = np.transpose(data_np, (0, 2, 1))
+
+        if nrows is not None:
+            data_np = data_np[:nrows, :, :]
+
+        return data_np
+
+
+    def __read_data__(self):
+        # monash
+        monash_dataset_path = os.path.join(self.data_path, 'Monash+')
+        for root, dirs, files in os.walk(monash_dataset_path):
+            dirs.sort()
+            files.sort()
+            for file in files:
+                subdata_path = os.path.join(root, file)
+                with h5py.File(subdata_path, 'r') as input_hf:
+                    data = input_hf['data']
+                    series = data[:, 0]
+                    labels = data[:, 1]
+
+                    num_train = int(series.shape[0] * self.split)
+                    num_test = int(series.shape[0] * (1 - self.split) / 2)
+                    num_vali = series.shape[0] - num_train - num_test
+
+                    border1s = [0, num_train, series.shape[0] - num_test, 0]
+                    border2s = [num_train, num_train + num_vali, series.shape[0], num_train + num_vali]   # init for spot
+
+                    border1 = border1s[self.set_type]
+                    border2 = border2s[self.set_type]
+
+                    data = series[border1:border2]
+                    label = labels[border1:border2]
+                    n_window = data.shape[0]
+                    if n_window <= 0:
+                        continue
+                    n_var = data.shape[2]
+                    self.data_list.append(data)
+                    self.label_list.append(label)
+                    all_n_window = n_window * n_var
+                    self.n_window_list.append(all_n_window if len(
+                        self.n_window_list) == 0 else self.n_window_list[-1] + all_n_window)
+        
+        if len(self.n_window_list) == 0:
+            raise ValueError(f"No samples found under {self.data_path}")
+        
+        # if self.shuffle:
+        #     self._shuffle_once()
+        print("\nTotal number of windows in merged dataset: ", self.n_window_list[-1])
+        
+    def __len__(self):
+        return self.n_window_list[-1]
+
+    def __getitem__(self, index):
+        assert index >= 0
+        # find the location of one dataset by the index
+        dataset_index = 0
+        while index >= self.n_window_list[dataset_index]:
+            dataset_index += 1
+
+        index = index - self.n_window_list[dataset_index - 1] if dataset_index > 0 else index
+        n_window = len(self.data_list[dataset_index])
+
+        c_begin = index // n_window     # select variable
+        s_begin = index % n_window      # select start window
+        seq_x = np.float32(self.data_list[dataset_index][s_begin, :, c_begin:c_begin + 1])
+        lab_y = np.float32(self.label_list[dataset_index][s_begin, :, c_begin:c_begin + 1])
+        return seq_x, lab_y

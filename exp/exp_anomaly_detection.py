@@ -46,113 +46,116 @@ class Exp_Anomaly_Detection(Exp_Basic):
         return data_provider(self.args, flag)
 
     def _select_optimizer(self):
-        # return optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
-        decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
-        decay_parameters = [name for name in decay_parameters if "bias" not in name]
-       
-        optim_groups = [
-            {
-                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters and p.requires_grad],
-                "weight_decay": self.args.weight_decay,
-            },
-            {
-                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters and p.requires_grad],
-                "weight_decay": 0.0,
-            },
-        ]
-        model_optim = torch.optim.AdamW(
-            optim_groups,
-            lr=self.args.learning_rate,
-            betas=(self.args.adam_beta1, self.args.adam_beta2),
-            eps=1e-8,
-        )
-        return model_optim
+        return torch.optim.AdamW(self.model.parameters(), lr=self.args.learning_rate)
 
     def _select_criterion(self):
         return nn.MSELoss()
 
-    def _autocast(self):
-        if self.args.use_amp and self.device.type == "cuda":
-            return torch.autocast(device_type="cuda", dtype=torch.float16)
-        return nullcontext()
-
-    def _forward(self, x):
-        # Models using TSLib forward(x_enc, x_mark_enc, x_dec, x_mark_dec).
-        outputs = self.model(x, None, None, None)
-        if isinstance(outputs, (tuple, list)):
-            outputs = outputs[0]
-        return outputs
-
-    @staticmethod
-    def _unpack_batch(batch):
-        if isinstance(batch, (tuple, list)):
-            return batch[0], (batch[1] if len(batch) > 1 else None)
-        return batch, None
-
     def vali(self, vali_data, vali_loader, criterion):
         self.model.eval()
-        losses = []
+        total_loss = []
         with torch.no_grad():
-            for batch in vali_loader:
-                batch_x, _ = self._unpack_batch(batch)
+            for batch_x, _ in vali_loader:
                 batch_x = batch_x.float().to(self.device)
-                with self._autocast():
-                    outputs = self._forward(batch_x)
-                    loss = criterion(outputs, batch_x)
-                losses.append(float(loss.item()))
-        if not losses:
-            raise ValueError("Validation loader contains no samples")
-        return float(np.mean(losses))
+                outputs = self.model(batch_x, None, None, None)
+                f_dim = -1 if self.args.features == "MS" else 0
+                outputs = outputs[:, :, f_dim:]
+                pred = outputs.detach()
+                true = batch_x.detach()
+
+                loss = criterion(pred, true)
+                total_loss.append(loss.item())
+
+        total_loss = np.average(total_loss)
+        self.model.train()
+        return total_loss
 
     def train(self, setting):
-        _, train_loader = self._get_data("train")
-        vali_data, vali_loader = self._get_data("val")
-        path = os.path.join(self.args.checkpoints, setting)
-        os.makedirs(path, exist_ok=True)
+        train_data, train_loader = self._get_data(flag="train")
+        vali_data, vali_loader = self._get_data(flag="val")
+        test_data, test_loader = self._get_data(flag="test")
 
-        optimizer = self._select_optimizer()
+        path = os.path.join(self.args.checkpoints, setting)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        time_now = time.time()
+
+        train_steps = len(train_loader)
+        early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+
+        model_optim = self._select_optimizer()
         criterion = self._select_criterion()
-        stopper = EarlyStopping(patience=self.args.patience, verbose=True)
-        amp_enabled = self.args.use_amp and self.device.type == "cuda"
-        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
-        
-        print('Model parameters: ', sum(param.numel() for param in self.model.parameters() if param.requires_grad))
+
+        print(
+            "Model parameters: ",
+            sum(
+                param.numel()
+                for param in self.model.parameters()
+                if param.requires_grad
+            ),
+        )
 
         for epoch in range(self.args.train_epochs):
+            iter_count = 0
+            train_loss = []
+
             self.model.train()
             epoch_time = time.time()
-            losses = []
-            for batch in train_loader:
-                batch_x, _ = self._unpack_batch(batch)
-                batch_x = batch_x.float().to(self.device)
-                optimizer.zero_grad(set_to_none=True)
-                with self._autocast():
-                    outputs = self._forward(batch_x)
-                    loss = criterion(outputs, batch_x)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                losses.append(float(loss.item()))
+            for i, (batch_x, batch_y) in enumerate(train_loader):
+                iter_count += 1
+                model_optim.zero_grad()
 
-            train_loss = float(np.mean(losses))
-            val_loss = self.vali(vali_data, vali_loader, criterion)
-            print(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
-                  f"Train: {train_loss:.6f}, Val: {val_loss:.6f} | "
-                  f"{time.time() - epoch_time:.1f}s")
-            stopper(val_loss, self.model, path)
-            if stopper.early_stop:
+                batch_x = batch_x.float().to(self.device)
+
+                outputs = self.model(batch_x, None, None, None)
+
+                f_dim = -1 if self.args.features == "MS" else 0
+                outputs = outputs[:, :, f_dim:]
+                loss = criterion(outputs, batch_x)
+                train_loss.append(loss.item())
+
+                if (i + 1) % 100 == 0:
+                    print(
+                        "\titers: {0}, epoch: {1} | loss: {2:.7f}".format(
+                            i + 1, epoch + 1, loss.item()
+                        )
+                    )
+                    speed = (time.time() - time_now) / iter_count
+                    left_time = speed * (
+                        (self.args.train_epochs - epoch) * train_steps - i
+                    )
+                    print(
+                        "\tspeed: {:.4f}s/iter; left time: {:.4f}s".format(
+                            speed, left_time
+                        )
+                    )
+                    iter_count = 0
+                    time_now = time.time()
+
+                loss.backward()
+                model_optim.step()
+
+            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
+            train_loss = np.average(train_loss)
+            vali_loss = self.vali(vali_data, vali_loader, criterion)
+            test_loss = self.vali(test_data, test_loader, criterion)
+
+            print(
+                "Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
+                    epoch + 1, train_steps, train_loss, vali_loss, test_loss
+                )
+            )
+            early_stopping(vali_loss, self.model, path)
+            if early_stopping.early_stop:
                 print("Early stopping")
                 break
-            adjust_learning_rate(optimizer, epoch + 1, self.args)
+            adjust_learning_rate(model_optim, epoch + 1, self.args)
 
-        self._load_checkpoint(setting)
+        best_model_path = path + "/" + "checkpoint.pth"
+        self.model.load_state_dict(torch.load(best_model_path))
+
         return self.model
-
-    def _load_checkpoint(self, setting):
-        ckpt = os.path.join(self.args.checkpoints, setting, "checkpoint.pth")
-        self.model.load_state_dict(
-            torch.load(ckpt, map_location=self.device, weights_only=True)
-        )
 
     def _collect_scores(self, data_loader, collect_labels=False):
         self.model.eval()
@@ -173,118 +176,79 @@ class Exp_Anomaly_Detection(Exp_Basic):
                     label = torch.as_tensor(batch_label)
                     if label.ndim == 3 and label.shape[-1] == 1:
                         label = label[..., 0]
-                    if label.shape != score.shape:
-                        raise ValueError(
-                            f"Expected point labels {tuple(score.shape)}, "
-                            f"got {tuple(label.shape)}"
-                        )
+
                     labels.append(label.cpu().numpy().reshape(-1))
 
-        if not scores:
-            raise ValueError("Data loader contains no samples")
         all_scores = np.concatenate(scores)
         all_labels = np.concatenate(labels) if collect_labels else None
         return all_scores, all_labels
 
     def test(self, setting, test=0):
+        print(
+            "Model parameters: ",
+            sum(param.numel() for param in self.model.parameters()),
+        )
         if test:
-            print('loading model')
+            print("loading model")
             self._load_checkpoint(setting)
-            
-        _, train_loader = self._get_data("train")
+            checkpoint = os.path.join(self.args.checkpoints, setting, "checkpoint.pth")
+            self.model.load_state_dict(
+                torch.load(checkpoint, map_location=self.device, weights_only=True)
+            )
+
+        # _, train_loader = self._get_data("train")
         _, test_loader = self._get_data("test")
+        _, val_loader = self._get_data("val")
 
+        val_scores = []
+        test_scores = []
+        test_labels = []
+
+        # cal anomaly_scores
         with torch.no_grad():
-            train_scores, _ = self._collect_scores(train_loader)
-            test_scores, labels = self._collect_scores(test_loader, collect_labels=True)
-        
-        # TSLib anomaly_ratio is a percentage: e.g. 1.0 means the top 1%.
-        threshold = float(np.percentile(train_scores, 100 - self.args.anomaly_ratio))
-        predictions = (test_scores > threshold).astype(np.int64)
-        labels = (labels != 0).astype(np.int64)
-        
-        
+            for i, (batch_x, batch_y) in enumerate(val_loader):
+                batch_x = batch_x.float().to(self.device)
+                output = self.model(batch_x)
+                # MAE score
+                score = (output.float() - batch_x.float()).abs().mean(dim=-1)
+                score = score.detach().cpu().numpy()
+                val_scores.append(score)
+
+            time_now = time.time()
+            # test
+            for i, (batch_x, batch_y) in enumerate(test_loader):
+                batch_x = batch_x.float().to(self.device)
+                output = self.model(batch_x)
+                # MAE score
+                score = (output.float() - batch_x.float()).abs().mean(dim=-1)
+                score = score.detach().cpu().numpy()
+                test_scores.append(score)
+                test_labels.append(batch_y)
+
+            print("Inference time: {}".format(time.time() - time_now))
+
+        val_scores = np.concatenate(val_scores, axis=0).reshape(-1)
+        val_scores = np.array(val_scores)
+        test_scores = np.concatenate(test_scores, axis=0).reshape(-1)
+        test_scores = np.array(test_scores)
+        test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
+        test_labels = np.array(test_labels)
+        gt = test_labels.astype(int)
+
         result_dir = os.path.join("results", setting)
         os.makedirs(result_dir, exist_ok=True)
-        np.savez_compressed(
-            os.path.join(result_dir, "anomaly_scores.npz"),
-            train_scores=train_scores,
-            test_scores=test_scores,
-            labels=labels,
-            predictions=predictions,
-            threshold=threshold,
+
+        init_scores = val_scores
+        evaluator = Evaluator(
+            gt=test_labels,
+            anomaly_score=test_scores,
+            save_path=result_dir,
+            init_score=init_scores,
+            flight_lengths=test_data.flight_lengths,
         )
 
+        # evaluator.evaluate(method="percentile", percentile=99.5)
+        evaluator.evaluate(method="3sigma", sigma=3)
+        # evaluator.evaluate(method="spot", q=1e-3, level=0.98)
 
-        # TimeRadar's Evaluator handles metric computation and CSV outputs.
-        # Example optional CLI: --eval_metrics f1_raw auc
-        selected = getattr(self.args, "eval_metrics", ["f1_raw", "auc"])
-        if isinstance(selected, str):
-            selected = selected.replace(",", " ").split()
-        metric_names = list(dict.fromkeys(selected))
-        allowed = {"f1_raw", "f1_pa", "affiliation", "auc", "r_auc", "vus", "best_f1"}
-        if not metric_names or any(m not in allowed for m in metric_names):
-            raise ValueError(f"Invalid eval_metrics: {metric_names}. Allowed: {sorted(allowed)}")
-
-        # ROC-AUC / AP require both normal and abnormal ground-truth classes.
-        if np.unique(labels).size < 2:
-            skipped = {"auc", "r_auc", "vus"} & set(metric_names)
-            if skipped:
-                print(f"Skipping {sorted(skipped)}: test labels contain only one class")
-                metric_names = [m for m in metric_names if m not in skipped]
-
-        evaluator = Evaluator(gt=labels, anomaly_score=test_scores, save_path=result_dir)
-        results = evaluator.evaluate(
-            metrics=metric_names,
-            f1_raw=[threshold],
-            f1_pa=[threshold],
-            affiliation=[threshold],
-            slidingWindow=self.args.seq_len,
-        )
-
-        # Evaluator returns pandas DataFrames, not JSON-ready scalar dictionaries.
-        metrics = {"threshold": threshold}
-        for name, df in results.items():
-            if len(df) > 0:
-                metrics[name] = {key: float(value) for key, value in df.iloc[0].items()}
-
-        # Maintain the same top-level keys as the original test() for callers.
-        raw = metrics.get("f1_raw")
-        if raw is not None:
-            metrics.update({
-                "accuracy": raw["ACC_raw"],
-                "precision": raw["P_raw"],
-                "recall": raw["R_raw"],
-                "f1": raw["F1_raw"],
-            })
-
-        with open(os.path.join(result_dir, "metrics.json"), "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2, ensure_ascii=False)
-        print("Reconstruction AD:", metrics)
-        return metrics
-        
-        
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            labels, predictions, average="binary", zero_division=0
-        )
-        metrics = {
-            "threshold": threshold,
-            "accuracy": float(accuracy_score(labels, predictions)),
-            "precision": float(precision),
-            "recall": float(recall),
-            "f1": float(f1),
-        }
-        result_dir = os.path.join("results", setting)
-        os.makedirs(result_dir, exist_ok=True)
-        np.savez_compressed(
-            os.path.join(result_dir, "anomaly_scores.npz"),
-            train_scores=train_scores,
-            test_scores=test_scores,
-            labels=labels,
-            predictions=predictions,
-            threshold=threshold,
-        )
-        with open(os.path.join(result_dir, "metrics.json"), "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2, ensure_ascii=False)
-        print("Reconstruction AD:", metrics)
-        return metrics
+        return

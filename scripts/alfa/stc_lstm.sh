@@ -6,14 +6,14 @@ python run.py \
     --model_id ALFA_Roll_minmax_biaewma \
     --model STC_LSTM \
     --data ALFA \
-    --root_path ./datasets/alfa_forecast1107/ \
+    --root_path datasets/ALFA/forecast/alfa_20hz_roll_bias8_v1 \
     --features MS \
     --target field.measured.roll \
 	--is_training 1 \
-    --seq_len 16 \
+    --seq_len 9 \
     --label_len 0 \
     --pred_len 1 \
-    --enc_in 17 \
+    --enc_in 18 \
     --dec_in 1 \
     --c_out 1 \
     --d_model 64 \
