@@ -1,17 +1,19 @@
 # vscode
 .vscode
-docs
-tests
 
 # custom
-logs/
+logs
 tests/
-!/tests/
-/tests/*
-!/tests/test_process_alfa_20hz.py
-results_dir/
+results_dir
 data/
 AGENTS.md
+docs
+
+
+# data
+data
+datasets
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -161,17 +163,6 @@ dmypy.json
 /run_tv.py
 
 /scripts/long_term_forecast/ETT_tv_script/
-/dataset/
-/data/*
-/datasets
-!/datasets/
-/datasets/*
-!/datasets/scripts/
-/datasets/scripts/*
-!/datasets/scripts/process_alfa_20hz.py
-!/data/*.py
-data_factory_all.py
-data_loader_all.py
 /scripts/short_term_forecast/tv_script/
 /exp/exp_short_term_forecasting_tv.py
 /exp/exp_long_term_forecasting_tv.py
