@@ -58,7 +58,7 @@ class Dataset_ALFA_Forecast(Dataset):
         border2 = border2s[self.set_type]
 
         if self.features == 'M' or self.features == 'MS':
-            df_data = df_raw.drop(columns=['date', 'label'], errors='ignore')
+            df_data = df_raw.drop(columns=['time', 'label'], errors='ignore')
         elif self.features == 'S':
             df_data = df_raw[[self.target]]
 
@@ -67,8 +67,8 @@ class Dataset_ALFA_Forecast(Dataset):
             self.scaler.fit(data[:n_train])
             data = self.scaler.transform(data)
 
-        if 'date' in df_raw.columns:
-            dates = pd.to_datetime(df_raw['date'])
+        if 'time' in df_raw.columns:
+            dates = pd.to_datetime(df_raw['time'])
             stamps = np.column_stack([
                 dates.dt.month, dates.dt.day,
                 dates.dt.dayofweek, dates.dt.hour,
