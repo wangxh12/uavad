@@ -1,18 +1,3 @@
-"""Reconstruction-based UAV anomaly detection, following TSLib's Exp pattern.
-
-Dataset contract (data_provider(args, flag)):
-    train/val: (x, labels) or (x, ...), x: [B, seq_len, enc_in]
-    test:      (x, point_labels), labels: [B, seq_len] or [B, seq_len, 1]
-
-The model must reconstruct *all* input channels and return [B, seq_len, enc_in].
-Scores are per-time-point mean squared errors averaged over all channels.
-No point adjustment; threshold fitted on training scores only.
-
-For overlapping windows, the flattened scores/labels represent window positions,
-not unique timestamps. Aggregate by original timestamps in your data pipeline
-before reporting true point-level metrics.
-"""
-
 import json
 import os
 import time

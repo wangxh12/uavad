@@ -9,6 +9,8 @@ data/
 AGENTS.md
 docs
 scratch
+*.bak
+backup
 
 # data
 data

@@ -1,33 +1,40 @@
 from torch.utils.data import DataLoader
 
-from data_provider.data_loader import Dataset_ALFA_Forecast, Dataset_ALFA_Reconstruction, PreTrainSegLoader
+from data_provider.data_loader import (
+    Dataset_ALFA_Forecast,
+    Dataset_ALFA_Forecast_MultiFlight,
+    Dataset_ALFA_Reconstruction,
+    PreTrainSegLoader,
+)
 
 data_dict = {
     "ALFA_Forecast": Dataset_ALFA_Forecast,
-    'ALFA_Reconstruction': Dataset_ALFA_Reconstruction,
-    'PretrainSegLoader': PreTrainSegLoader,
+    "ALFA_Reconstruction": Dataset_ALFA_Reconstruction,
+    "PretrainSegLoader": PreTrainSegLoader,
+    "ALFA_MultiFlight": Dataset_ALFA_Forecast_MultiFlight,
 }
+
 
 def data_provider(args, flag):
     Data = data_dict[args.data]
-    timeenc = 1 if getattr(args, 'embed', '') == 'timeF' else 0
-    
-    if args.data == 'PretrainSegLoader':
+    timeenc = 1 if getattr(args, "embed", "") == "timeF" else 0
+
+    if args.data == "PretrainSegLoader":
         data_set = Data(
             root_path=args.root_path,
             seq_len=args.seq_len,
             pred_len=args.pred_len,
-            stride=args.step,
+            stride=args.stride,
             flag=flag,
         )
         data_loader = DataLoader(
             data_set,
             batch_size=args.batch_size,
-            shuffle=(flag == 'train'),
+            shuffle=(flag == "train"),
             num_workers=args.num_workers,
             drop_last=False,
         )
-        print(f'{flag}: {len(data_set)} samples')
+        print(f"{flag}: {len(data_set)} samples")
         return data_set, data_loader
 
     data_set = Data(
@@ -36,21 +43,18 @@ def data_provider(args, flag):
         size=[args.seq_len, args.label_len, args.pred_len],
         features=args.features,
         target=args.target,
-        scaler=getattr(args, 'scaler', 'standard'),
-        timeenc=timeenc,
-        freq=getattr(args, 'freq', 'h'),
-        step=args.step,
+        stride=args.stride,
+        scaler=args.scaler,
         args=args,
     )
 
     data_loader = DataLoader(
         data_set,
         batch_size=args.batch_size,
-        shuffle=(flag == 'train'),
+        shuffle=(flag == "train"),
         num_workers=args.num_workers,
         drop_last=False,
     )
 
-    print(f'{flag}: {len(data_set)} samples')
+    print(f"{flag}: {len(data_set)} samples")
     return data_set, data_loader
-
