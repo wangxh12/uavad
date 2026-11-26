@@ -1,17 +1,17 @@
 from torch.utils.data import DataLoader
 
 from data_provider.data_loader import (
-    Dataset_ALFA_Forecast,
-    Dataset_ALFA_Forecast_MultiFlight,
-    Dataset_ALFA_Reconstruction,
-    PreTrainSegLoader,
+    ALFAForecast,
+    ALFARecon,
+    ALFASegForecast,
+    ALFASegRecon,
 )
 
 data_dict = {
-    "ALFA_Forecast": Dataset_ALFA_Forecast,
-    "ALFA_Reconstruction": Dataset_ALFA_Reconstruction,
-    "PretrainSegLoader": PreTrainSegLoader,
-    "ALFA_MultiFlight": Dataset_ALFA_Forecast_MultiFlight,
+    "ALFA": ALFARecon,
+    "ALFA_Forecast": ALFAForecast,
+    "ALFA_Seg": ALFASegRecon,
+    "ALFA_Seg_Forecast": ALFASegForecast,
 }
 
 
