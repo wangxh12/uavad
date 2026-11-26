@@ -66,7 +66,7 @@ def get_args(argv=None):
         default="standard",
         help="Fit scaling on training rows only",
     )
-    parser.add_argument("--features", type=str, choices=["M", "S", "MS"], default="MS")
+    parser.add_argument("--features", type=str, choices=["S", "MS"], default="MS")
     parser.add_argument("--target", type=str, default="OT")
     parser.add_argument(
         "--batch_size", type=int, default=64, help="batch size of input data"

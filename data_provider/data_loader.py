@@ -72,10 +72,11 @@ class Dataset_ALFA_Forecast(Dataset):
         # 输入不包含预测目标（S 模式除外）
         if self.features == "S":
             self.data_x = data
+            self.data_y = data
         else:
             self.data_x = data[:, :-1]
+            self.data_y = data[:, -1:]
 
-        self.data_y = data
 
         # 加载异常标签，不参与标准化
         self.data_label = df_raw["label"].to_numpy(dtype=np.int64)
@@ -307,6 +308,10 @@ class Dataset_ALFA_Reconstruction(Dataset):
         if self.scaler is None:
             return data
         return self.scaler.inverse_transform(data)
+
+
+
+
 
 
 class PreTrainSegLoader(Dataset):

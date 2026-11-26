@@ -5,29 +5,27 @@ python -u run.py \
     --is_training 1 \
     --model_id roll_bias_v1 \
     --model LSTM \
-    --data ALFA_MultiFlight \
-    --root_path ./datasets/ALFA/forecast/roll_bias_v1/ \
+    --data ALFA_Forecast \
+    --root_path ./datasets/ALFA/forecast/alfa_roll_bias_8_base \
     --features MS \
     --target field.measured.roll \
-    --scaler standard \
-    --seq_len 9 \
-    --label_len 0 \
+    --scaler minmax \
+    --seq_len 16 \
     --pred_len 1 \
     --stride 1 \
     --enc_in 17 \
-    --dec_in 1 \
     --c_out 1 \
-    --d_model 128 \
-    --e_layers 2 \
+    --d_model 64 \
+    --e_layers 4 \
     --dropout 0.1 \
-    --batch_size 64 \
+    --batch_size 32 \
     --train_epochs 20 \
     --learning_rate 0.001 \
 	--lradj type3 \
     --patience 5 \
     --num_workers 0 \
-    --threshold_method percentile \
-    --anomaly_ratio 1.0 \
+    --threshold_method 3sigma \
+    --threshold_sigma 1.0 \
     --gpu 0 \
-    --seed 2021 \
+    --seed 2024 \
     --itr 1
