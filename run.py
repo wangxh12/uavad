@@ -27,7 +27,6 @@ def get_args(argv=None):
     parser.add_argument("--val_file", type=str, default="val.csv")
     parser.add_argument("--test_file", type=str, default="test.csv")
     parser.add_argument("--label_file", type=str, default="label.csv", help="CSV with one binary label column, aligned with test rows")
-    parser.add_argument("--normalization", choices=["standard", "minmax"], default="standard", help="Fit scaling on training rows only")
     parser.add_argument("--features", type=str, choices=["S", "MS"], default="MS")
     parser.add_argument("--target", type=str, default="OT")
     parser.add_argument("--batch_size", type=int, default=64, help="batch size of input data")
@@ -93,14 +92,16 @@ def get_args(argv=None):
     parser.add_argument("--use_multi_gpu", action="store_true")
     parser.add_argument("--devices", type=str, default="0,1")
 
-    # Bi-AEWMA
+    # Residual smoothing
     parser.add_argument("--use_biaewma", action="store_true")
-    parser.add_argument("--smooth_method", type=str, default=None)
-    parser.add_argument("--smooth_rho", type=float, default=0.1)
+    parser.add_argument("--smooth_method", type=str, default=None, help="ewma, bi_aewma, moving_mean or moving_median")
+    parser.add_argument("--smooth_args", type=float, default=None, help="EWMA alpha, Bi-AEWMA rho or moving window length")
+    
+    # eval
     parser.add_argument("--metric", nargs="+", default=["f1_raw", "auc"])
 
     # Threshold
-    parser.add_argument("--thres_method", type=str, default="percentile", choices=["percentile", "3sigma", "spot", "mad", "iqr"])
+    parser.add_argument("--thres_method", type=str, default="percentile", choices=["percentile", "sigma", "spot", "mad", "iqr"])
     parser.add_argument("--thres_args", type=float, default=None, help="percentile, sigma multiplier, or SPOT q")
     parser.add_argument("--threshold_sigma", type=float, default=3.0)
     parser.add_argument("--threshold_mad_k", type=float, default=3.0)

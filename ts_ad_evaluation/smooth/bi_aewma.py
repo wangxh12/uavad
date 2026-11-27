@@ -1,7 +1,8 @@
 import numpy as np
 
 
-def bi_aewma(residuals, rho):
+def bi_aewma(residuals, args):
+    rho = args
     r = np.asarray(residuals, dtype=np.float64)
     n = r.size
     if n == 0:

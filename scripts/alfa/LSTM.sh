@@ -2,14 +2,14 @@
 
 python -u run.py \
     --task_name forecast \
-    --is_training 1 \
-    --model_id roll_bias_v1 \
+    --is_training 0 \
+    --model_id Roll_8 \
     --model LSTM \
     --data ALFA_Forecast \
     --root_path ./datasets/ALFA/forecast/alfa_roll_bias_8_base \
     --features MS \
     --target field.measured.roll \
-    --scaler minmax \
+    --scaler standard \
     --seq_len 16 \
     --pred_len 1 \
     --stride 1 \
@@ -24,10 +24,10 @@ python -u run.py \
 	--lradj type3 \
     --patience 5 \
     --num_workers 0 \
-    --thres_method 3sigma \
+    --thres_method sigma \
     --thres_args 1.0 \
-	--smooth_method bi_aewma \
-	--smooth_rho 0.1 \
+	--smooth_method ewma \
+	--smooth_args 0.05 \
     --gpu 0 \
     --seed 2024 \
     --itr 1

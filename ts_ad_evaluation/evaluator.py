@@ -41,9 +41,11 @@ class Evaluator:
         is enabled, the smoothed test residuals are used to calculate metrics.
         """
         self.thres = self.find_thres(thres_method, verbose=verbose)
+
+        # smooth residual
         self.smoothed_res = np.asarray(self.anomaly_score).reshape(-1)
         if smooth_method:
-            self.smooth_residual(smooth_method, rho=self.args.smooth_rho, verbose=verbose)
+            self.smooth_residual(smooth_method, verbose=verbose)
 
         thresholds = np.atleast_1d(self.thres).tolist()
         metric_options = {}
@@ -51,6 +53,7 @@ class Evaluator:
             if name in metrics:
                 metric_options[name] = thresholds
 
+        # eval
         results = {}
         labels = np.asarray(self.gt).reshape(-1)
         f1.evaluate(results, metrics, labels=labels, score=self.smoothed_res, **metric_options)
@@ -69,12 +72,31 @@ class Evaluator:
         }
         with open(os.path.join(self.save_path, "metrics.json"), "w", encoding="utf-8") as file:
             json.dump(output, file, indent=2, ensure_ascii=False)
+
+        # Print metrics and absolute paths for quick access from the terminal.
+        if verbose:
+            # print("\nEvaluation results")
+            for name, frame in results.items():
+                print(f"\n{name}")
+                print(frame.to_string(index=False, float_format="{:.6f}".format))
+            result_dir = Path(self.save_path).absolute()
+            print(f"\nResults directory: {result_dir}")
+            print(f"Metrics file: {result_dir / 'metrics.json'}")
         return output
+
+    def _shade_anomalies(self, ax):
+        """Shade labeled anomaly intervals, including each endpoint sample."""
+        mask = np.asarray(self.gt).reshape(-1).astype(bool)
+        edges = np.flatnonzero(np.diff(np.r_[False, mask, False]))
+        for i, (start, end) in enumerate(edges.reshape(-1, 2)):
+            ax.axvspan(start - 0.5, end - 0.5, color="#e88b7d", alpha=0.18,
+                       linewidth=0, zorder=0, label="Labeled anomaly" if i == 0 else None)
 
     def plot_scores(self):
         raw = np.asarray(self.anomaly_score).reshape(-1)
         fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(raw, color="#aeb7c1", linewidth=0.8, alpha=0.7, label="Raw residual")
+        self._shade_anomalies(ax)
+        ax.plot(raw, color="#7c8895", linewidth=1, alpha=0.7, label="Raw residual")
         ax.plot(self.smoothed_res, color="#2878b5", linewidth=1.2, label="Evaluation score")
         for i, threshold in enumerate(np.atleast_1d(self.thres)):
             ax.axhline(threshold, color="#d95f5f", linestyle="--", linewidth=1.1,
@@ -90,14 +112,8 @@ class Evaluator:
         """Calculate a threshold from validation residuals.
 
         Args:
-            method: One of percentile, 3sigma, spot, mad or iqr.
+            method: One of percentile, sigma, spot, mad or iqr.
             verbose: Print the threshold and method when True.
-
-        For percentile, 3sigma and spot, args.thres_args specifies the
-        percentile, standard deviation multiplier and SPOT q respectively.
-        If omitted, they default to 100 - anomaly_ratio, threshold_sigma
-        and 0.001. MAD and IQR use threshold_mad_k and threshold_iqr_k.
-        SPOT also uses test residuals and returns the mean dynamic threshold.
 
         Returns:
             The threshold as a scalar.
@@ -108,7 +124,7 @@ class Evaluator:
         if method == "percentile":
             percentile = value if value is not None else 100 - self.args.anomaly_ratio
             threshold = np.percentile(scores, percentile)
-        elif method == "3sigma":
+        elif method == "sigma":
             sigma = value if value is not None else self.args.threshold_sigma
             threshold = scores.mean() + sigma * scores.std()
         elif method == "spot":
@@ -128,18 +144,19 @@ class Evaluator:
             print(f"threshold: {threshold}, method: {method}")
         return float(threshold)
 
-    def smooth_residual(self, method="bi_aewma", verbose=True, **kwargs):
-        """Smooth test residuals and save a comparison with the original values."""
+    def smooth_residual(self, method="bi_aewma", verbose=True):
+        """Smooth test residuals using args.smooth_args and save a comparison plot."""
         self.smoothed_res = getattr(smooth, method)(
-            np.asarray(self.anomaly_score).reshape(-1), **kwargs
+            np.asarray(self.anomaly_score).reshape(-1), args=self.args.smooth_args
         )
 
         if verbose:
-            print(f"smooth_method: {method}, smooth_args: {kwargs}")
+            print(f"smooth_method: {method}, smooth_args: {self.args.smooth_args}")
 
         # plot diff
         fig, ax = plt.subplots(figsize=(12, 4))
-        ax.plot(np.asarray(self.anomaly_score).reshape(-1), color="#aeb7c1", linewidth=0.8, alpha=0.7, label="Raw residual")
+        self._shade_anomalies(ax)
+        ax.plot(np.asarray(self.anomaly_score).reshape(-1), color="#80848a", linewidth=1, alpha=0.7, label="Raw residual")
         ax.plot(
             self.smoothed_res,
             color="#2878b5",
@@ -160,7 +177,7 @@ class Evaluator:
         if method == "percentile":
             threshold = np.percentile(self.init_score, percentile)
 
-        elif method == "3sigma":
+        elif method == "sigma":
             threshold = self.init_score.mean() + sigma * self.init_score.std()
 
         elif method == "spot":
@@ -189,104 +206,3 @@ class Evaluator:
         pred = (self.score > thresholds).astype(int)
 
         return pred, thresholds
-
-    def evaluate11(
-        self, method="percentile", percentile=99, sigma=3, q=1e-3, level=0.98
-    ):
-
-        pred, thresholds = self.predict(method, percentile, sigma, q, level)
-
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            self.gt, pred, average="binary", zero_division=0
-        )
-
-        auroc = (
-            roc_auc_score(self.gt, self.score)
-            if np.unique(self.gt).size == 2
-            else np.nan
-        )
-
-        auprc = (
-            average_precision_score(self.gt, self.score) if self.gt.any() else np.nan
-        )
-
-        n_events = 0
-        detected = 0
-        delays = []
-
-        for part in self._flights():
-            for begin, end in self._events(self.gt[part]):
-                n_events += 1
-
-                hits = np.flatnonzero(pred[part][begin:end])
-
-                if hits.size:
-                    detected += 1
-                    delays.append(int(hits[0]))
-
-        result = {
-            "method": method,
-            "precision": precision,
-            "recall": recall,
-            "f1_raw": f1,
-            "auroc": auroc,
-            "auprc": auprc,
-            "event_recall": (detected / n_events if n_events else np.nan),
-            "mean_delay_steps": (np.mean(delays) if delays else np.nan),
-        }
-
-        records = pd.DataFrame(
-            {
-                "flight": np.repeat(
-                    np.arange(len(self.flight_lengths)), self.flight_lengths
-                ),
-                "time_step": np.concatenate(
-                    [np.arange(n) for n in self.flight_lengths]
-                ),
-                "label": self.gt,
-                "score": self.score,
-                "threshold": thresholds,
-                "pred": pred,
-            }
-        )
-
-        records.to_csv(self.save_path / f"{method}_predictions.csv", index=False)
-
-        pd.DataFrame([result]).to_csv(
-            self.save_path / f"{method}_metrics.csv", index=False
-        )
-
-        print(pd.Series(result))
-        return result
-
-    def evaluate_ranges(self, metrics=("r_auc", "vus"), sliding_window=100):
-        from . import auc_vus
-
-        rows = []
-
-        for flight_id, part in enumerate(self._flights()):
-            labels = self.gt[part]
-
-            if np.unique(labels).size < 2:
-                continue
-
-            storage = {}
-            auc_vus.evaluate(
-                storage,
-                metrics,
-                labels=labels,
-                score=self.score[part],
-                slidingWindow=sliding_window,
-            )
-
-            row = {"flight": flight_id}
-
-            for values in storage.values():
-                frame = pd.DataFrame.from_dict(values)
-                row.update(frame.iloc[0].to_dict())
-
-            rows.append(row)
-
-        table = pd.DataFrame(rows)
-        table.to_csv(self.save_path / "range_metrics.csv", index=False)
-        return table
