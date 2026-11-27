@@ -11,109 +11,40 @@ def get_args(argv=None):
     parser = argparse.ArgumentParser(description="UAV Anomaly Detection")
 
     # Basic configuration
-    parser.add_argument(
-        "--task_name",
-        type=str,
-        required=True,
-        choices=["forecast", "anomaly_detection"],
-    )
-    parser.add_argument(
-        "--is_training",
-        type=int,
-        choices=[0, 1],
-        default=1,
-        help="1: train and test; 0: test a saved checkpoint",
-    )
+    parser.add_argument("--task_name", type=str, required=True, choices=["forecast", "anomaly_detection"])
+    parser.add_argument("--is_training", type=int, choices=[0, 1], default=1, help="1: train and test; 0: test a saved checkpoint")
     parser.add_argument("--model_id", type=str, default="UAV")
-    parser.add_argument(
-        "--model",
-        type=str,
-        required=True,
-        help="Model name, matching a Python module under models/",
-    )
+    parser.add_argument("--model", type=str, required=True, help="Model name, matching a Python module under models/")
     parser.add_argument("--seed", type=int, default=2021)
-    parser.add_argument(
-        "--run_idx",
-        type=int,
-        default=0,
-        help="Run index of the checkpoint used when is_training=0",
-    )
+    parser.add_argument("--run_idx", type=int, default=0, help="Run index of the checkpoint used when is_training=0")
 
     # Data loading
     parser.add_argument("--data", type=str, default="MSL", help="dataset type")
-    parser.add_argument(
-        "--split_config",
-        type=str,
-        default=None,
-        help="Explicit time-split JSON for WideCSV/TLM_UAV (path relative to working directory)",
-    )
-    parser.add_argument(
-        "--root_path", type=str, default="./dataset/", help="root path of the data file"
-    )
+    parser.add_argument("--split_config", type=str, default=None, help="Explicit time-split JSON for WideCSV/TLM_UAV (path relative to working directory)")
+    parser.add_argument("--root_path", type=str, default="./dataset/", help="root path of the data file")
     parser.add_argument("--data_path", type=str, default="")
     parser.add_argument("--train_file", type=str, default="train.csv")
     parser.add_argument("--val_file", type=str, default="val.csv")
     parser.add_argument("--test_file", type=str, default="test.csv")
-    parser.add_argument(
-        "--label_file",
-        type=str,
-        default="label.csv",
-        help="CSV with one binary label column, aligned with test rows",
-    )
-    parser.add_argument(
-        "--normalization",
-        choices=["standard", "minmax"],
-        default="standard",
-        help="Fit scaling on training rows only",
-    )
+    parser.add_argument("--label_file", type=str, default="label.csv", help="CSV with one binary label column, aligned with test rows")
+    parser.add_argument("--normalization", choices=["standard", "minmax"], default="standard", help="Fit scaling on training rows only")
     parser.add_argument("--features", type=str, choices=["S", "MS"], default="MS")
     parser.add_argument("--target", type=str, default="OT")
-    parser.add_argument(
-        "--batch_size", type=int, default=64, help="batch size of input data"
-    )
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size of input data")
     parser.add_argument("--step", type=int, default=1, help="step")
-    parser.add_argument(
-        "--freq",
-        type=str,
-        default="h",
-        help="freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h",
-    )
-    parser.add_argument(
-        "--checkpoints",
-        type=str,
-        default="./checkpoints/",
-        help="location of model checkpoints",
-    )
+    parser.add_argument("--freq", type=str, default="h", help="freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h")
+    parser.add_argument("--checkpoints", type=str, default="./checkpoints/", help="location of model checkpoints")
 
     parser.add_argument("--scaler", choices=["standard", "minmax"], default="standard")
 
     # Task configuration
-    parser.add_argument(
-        "--seq_len", type=int, default=9, help="Input length for both tasks"
-    )
-    parser.add_argument(
-        "--label_len",
-        type=int,
-        default=0,
-        help="Decoder known-context length, if applicable",
-    )
-    parser.add_argument(
-        "--pred_len",
-        type=int,
-        default=1,
-        help="Forecast horizon; not used for reconstruction",
-    )
-    parser.add_argument(
-        "--anomaly_ratio",
-        type=float,
-        default=1.0,
-        help="Anomaly ratio in percent (TSLib convention: 1.0 means 1%%)",
-    )
+    parser.add_argument("--seq_len", type=int, default=9, help="Input length for both tasks")
+    parser.add_argument("--label_len", type=int, default=0, help="Decoder known-context length, if applicable")
+    parser.add_argument("--pred_len", type=int, default=1, help="Forecast horizon; not used for reconstruction")
+    parser.add_argument("--anomaly_ratio", type=float, default=1.0, help="Anomaly ratio in percent (TSLib convention: 1.0 means 1%%)")
 
     # Common model configuration
-    parser.add_argument(
-        "--enc_in", type=int, required=True, help="Number of input flight variables"
-    )
+    parser.add_argument("--enc_in", type=int, required=True, help="Number of input flight variables")
     parser.add_argument("--dec_in", type=int, default=None)
     parser.add_argument("--c_out", type=int, default=None)
     parser.add_argument("--d_model", type=int, default=128)
@@ -126,12 +57,7 @@ def get_args(argv=None):
     parser.add_argument("--embed", type=str, default="timeF")
     parser.add_argument("--activation", type=str, default="gelu")
     parser.add_argument("--output_attention", action="store_true")
-    parser.add_argument(
-        "--distil",
-        action="store_false",
-        default=True,
-        help="Disable encoder distillation when provided",
-    )
+    parser.add_argument("--distil", action="store_false", default=True, help="Disable encoder distillation when provided")
     parser.add_argument("--moving_avg", type=int, default=25)
     parser.add_argument("--top_k", type=int, default=5)
     parser.add_argument("--num_kernels", type=int, default=6)
@@ -140,42 +66,19 @@ def get_args(argv=None):
     parser.add_argument("--stride", type=int, default=8)
 
     # Optimization
-    # parser.add_argument('--max_iters', type=int, default=100000, help='for DADA')
-    parser.add_argument(
-        "--percentage", type=float, default=1, help="the percentage(*100) of train data"
-    )
+    parser.add_argument('--max_iters', type=int, default=100000, help='for DADA')
+    parser.add_argument("--percentage", type=float, default=1, help="the percentage(*100) of train data")
     parser.add_argument("--des", type=str, default="zero_shot", help="exp description")
-    parser.add_argument(
-        "--num_workers", type=int, default=10, help="data loader num workers"
-    )
+    parser.add_argument("--num_workers", type=int, default=10, help="data loader num workers")
     parser.add_argument("--itr", type=int, default=1, help="experiments times")
-    parser.add_argument(
-        "--train_epochs", type=int, default=10, help="pretraining epochs"
-    )
-    parser.add_argument(
-        "--finetune_epochs", type=int, default=10, help="finetuning epochs"
-    )
-    parser.add_argument(
-        "--patience", type=int, default=3, help="early stopping patience"
-    )
-    parser.add_argument(
-        "--learning_rate", type=float, default=1e-3, help="optimizer learning rate"
-    )
+    parser.add_argument("--train_epochs", type=int, default=10, help="pretraining epochs")
+    parser.add_argument("--finetune_epochs", type=int, default=10, help="finetuning epochs")
+    parser.add_argument("--patience", type=int, default=3, help="early stopping patience")
+    parser.add_argument("--learning_rate", type=float, default=1e-3, help="optimizer learning rate")
     parser.add_argument("--loss", type=str, default="MSE", help="loss function")
-    parser.add_argument(
-        "--lradj",
-        type=str,
-        choices=["type1", "type2", "type3", "cosine"],
-        default="type1",
-        help="Learning rate adjustment strategy",
-    )
+    parser.add_argument("--lradj", type=str, choices=["type1", "type2", "type3", "cosine"], default="type1", help="Learning rate adjustment strategy")
     parser.add_argument("--pct_start", type=float, default=0.3, help="pct_start")
-    parser.add_argument(
-        "--use_amp",
-        action="store_true",
-        help="use automatic mixed precision training",
-        default=False,
-    )
+    parser.add_argument("--use_amp", action="store_true", help="use automatic mixed precision training", default=False)
     parser.add_argument("--warmup_steps", type=int, default=10000, help="warmup steps")
     parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam beta1")
     parser.add_argument("--adam_beta2", type=float, default=0.95, help="adam beta2")
@@ -192,21 +95,13 @@ def get_args(argv=None):
 
     # Bi-AEWMA
     parser.add_argument("--use_biaewma", action="store_true")
-    parser.add_argument("--smooth_rho", type=float, default=None)
+    parser.add_argument("--smooth_method", type=str, default=None)
+    parser.add_argument("--smooth_rho", type=float, default=0.1)
+    parser.add_argument("--metric", nargs="+", default=["f1_raw", "auc"])
 
     # Threshold
-    parser.add_argument(
-        "--threshold_method",
-        type=str,
-        default="percentile",
-        choices=["percentile", "3sigma", "mad", "iqr"],
-    )
-    parser.add_argument(
-        "--threshold_source",
-        type=str,
-        default="val",
-        choices=["train", "val", "train_val", "train_test"],
-    )
+    parser.add_argument("--thres_method", type=str, default="percentile", choices=["percentile", "3sigma", "spot", "mad", "iqr"])
+    parser.add_argument("--thres_args", type=float, default=None, help="percentile, sigma multiplier, or SPOT q")
     parser.add_argument("--threshold_sigma", type=float, default=3.0)
     parser.add_argument("--threshold_mad_k", type=float, default=3.0)
     parser.add_argument("--threshold_iqr_k", type=float, default=1.5)
@@ -221,6 +116,9 @@ def get_args(argv=None):
     # parser.add_argument('--num_kernels', type=int, default=3)
 
     args = parser.parse_args(argv)
+
+    if args.use_biaewma and args.smooth_method is None:
+        args.smooth_method = "bi_aewma"
 
     # Task-specific configuration
     forecast = args.task_name == "forecast"

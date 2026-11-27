@@ -13,8 +13,8 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from data_provider.data_factory import data_provider
 from exp.exp_basic import Exp_Basic
 from utils.tools import EarlyStopping, adjust_learning_rate
-from utils.residual_filter import bi_aewma
 from utils.threshold import calculate_threshold
+from ts_ad_evaluation.evaluator import Evaluator
 
 
 class Exp_Forecasting(Exp_Basic):
@@ -76,7 +76,7 @@ class Exp_Forecasting(Exp_Basic):
                 outputs = self.model(batch_x, None, dec_inp, None)
 
             outputs = outputs[:, -self.args.pred_len :, :].float()
-            target = batch_y
+            target = batch_y[:, -self.args.pred_len :, :]
 
             loss = criterion(outputs, target)
             total_loss += loss.item() * batch_x.size(0)
@@ -117,7 +117,7 @@ class Exp_Forecasting(Exp_Basic):
                     outputs = self.model(batch_x, None, dec_inp, None)
 
                 outputs = outputs[:, -self.args.pred_len :, :].float()
-                target = batch_y
+                target = batch_y[:, -self.args.pred_len :, :]
 
                 loss = criterion(outputs, target)
                 grad_scaler.scale(loss).backward()
@@ -144,168 +144,71 @@ class Exp_Forecasting(Exp_Basic):
         self._load_checkpoint(setting)
         return self.model
 
-    @torch.no_grad()
-    def _collect_predictions(self, loader):
-        self.model.eval()
-        preds, trues = [], []
-        f_dim = -1 if self.args.features == "MS" else 0
-
-        for batch_x, batch_y, _ in loader:
-            batch_x = batch_x.float().to(self.device)
-            batch_y = batch_y.float().to(self.device)
-
-            dec_inp = batch_x.new_zeros(
-                (batch_x.size(0), self.args.pred_len, self.args.dec_in)
-            )
-
-            with self._autocast():
-                outputs = self.model(batch_x, None, dec_inp, None)
-
-            outputs = outputs[:, -self.args.pred_len :, f_dim:].float()
-            target = batch_y
-
-            preds.append(outputs.cpu().numpy())
-            trues.append(target.cpu().numpy())
-
-        # Preserve [N, pred_len, C]; do not flatten channels into the time axis.
-        preds = np.concatenate(preds, axis=0)
-        trues = np.concatenate(trues, axis=0)
-        scores = np.abs(preds - trues).mean(axis=(1, 2))
-        return preds, trues, scores
-
     def test(self, setting, test=0):
         # Pointwise labels[seq_len:] require single-step, stride-one forecasting.
-        assert (
-            self.args.pred_len == 1
-        ), "Pointwise anomaly evaluation requires pred_len=1"
 
         if test:
             print("Loading model checkpoint")
             self._load_checkpoint(setting)
 
+        result_dir = os.path.join("results", setting)
+        if (
+            not os.path.exists(result_dir)
+            and int(os.environ.get("LOCAL_RANK", "0")) == 0
+        ):
+            os.makedirs(result_dir)
+
         _, val_loader = self._get_data("val")
         _, test_loader = self._get_data("test")
-        _, _, val_raw_scores = self._collect_predictions(val_loader)
-        preds, trues, test_raw_scores = self._collect_predictions(test_loader)
 
-        val_scores, test_scores = val_raw_scores, test_raw_scores
-        if self.args.use_biaewma:
-            # Keep validation and test smoothing independent and time-ordered.
-            val_scores = bi_aewma(val_raw_scores.copy(), self.args.smooth_rho)
-            test_scores = bi_aewma(test_raw_scores.copy(), self.args.smooth_rho)
+        init_scores = []
+        test_labels = []
+        test_scores = []
 
-        labels = pd.read_csv(
-            os.path.join(self.args.root_path, "test.csv"), usecols=["label"]
-        )["label"].to_numpy(dtype=np.int64)[self.args.seq_len :]
-        assert len(labels) == len(test_scores), "Test scores and labels are misaligned"
+        self.model.eval()
+        with torch.no_grad():
+            # collect validation scores
+            for batch_x, batch_y, _ in val_loader:
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
 
-        threshold = float(
-            calculate_threshold(
-                val_scores=val_scores,
-                method=self.args.threshold_method,
-                anomaly_ratio=self.args.anomaly_ratio,
-                sigma=self.args.threshold_sigma,
-            )
-        )
-        detections = (test_scores > threshold).astype(np.int64)
-        precision, recall, f1, _ = precision_recall_fscore_support(
-            labels, detections, average="binary", zero_division=0
-        )
-        metrics = {
-            "mae": float(test_raw_scores.mean()),
-            "threshold": threshold,
-            "accuracy": float(accuracy_score(labels, detections)),
-            "precision": float(precision),
-            "recall": float(recall),
-            "f1": float(f1),
-        }
+                dec_inp = batch_x.new_zeros(
+                    (batch_x.size(0), self.args.pred_len, self.args.dec_in)
+                )
+                with self._autocast():
+                    outputs = self.model(batch_x, None, dec_inp, None)
 
-        result_dir = os.path.join("results", setting)
-        os.makedirs(result_dir, exist_ok=True)
-        np.savez_compressed(
-            os.path.join(result_dir, "forecast_scores.npz"),
-            pred=preds,
-            true=trues,
-            val_raw_scores=val_raw_scores,
-            test_raw_scores=test_raw_scores,
-            val_scores=val_scores,
-            test_scores=test_scores,
-            labels=labels,
-            predictions=detections,
-            threshold=threshold,
-        )
-        with open(os.path.join(result_dir, "metrics.json"), "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=4, ensure_ascii=False)
+                outputs = outputs[:, -self.args.pred_len :, :].float()
+                target = batch_y[:, -self.args.pred_len :, :]
+                init_scores.append(torch.abs(outputs - target).mean(dim=-1).cpu().numpy())
 
-        # Visualize the last selected channel; M-mode files retain all channels.
-        self.plot_forecast_results(
-            preds=preds[:, 0, -1],
-            trues=trues[:, 0, -1],
-            scores=test_scores,
-            threshold=threshold,
-            labels=labels,
-            save_dir=result_dir,
-            start_index=self.args.seq_len,
-        )
-        print("\nForecasting Anomaly Detection Results:")
-        for key, value in metrics.items():
-            print(f"{key}: {value:.6f}")
-        return metrics
+            # collect test scores
+            for batch_x, batch_y, label in test_loader:
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
 
-    def plot_forecast_results(
-        self, preds, trues, scores, threshold, labels, save_dir, start_index=0
-    ):
-        """Plot one selected channel and its time-aligned anomaly scores."""
-        indices = np.arange(start_index, start_index + len(scores))
-        anomaly_mask = labels.astype(bool)
+                dec_inp = batch_x.new_zeros(
+                    (batch_x.size(0), self.args.pred_len, self.args.dec_in)
+                )
+                with self._autocast():
+                    outputs = self.model(batch_x, None, dec_inp, None)
 
-        fig, ax = plt.subplots(figsize=(13, 4))
-        ax.plot(indices, trues, label="Observed target", linewidth=1.2)
-        ax.plot(indices, preds, label="Prediction", linewidth=1.1)
-        ax.fill_between(
-            indices,
-            0,
-            1,
-            where=anomaly_mask,
-            transform=ax.get_xaxis_transform(),
-            alpha=0.12,
-            step="mid",
-            label="Labeled anomaly",
-        )
-        ax.set(
-            xlabel="Test row index",
-            ylabel="Target (Dataset scale)",
-            title=f"Forecast vs. observation: {self.args.target}",
-        )
-        ax.legend(loc="best")
-        fig.tight_layout()
-        fig.savefig(os.path.join(save_dir, "forecast_vs_gt.png"), dpi=200)
-        plt.close(fig)
+                outputs = outputs[:, -self.args.pred_len :, :].float()
+                target = batch_y[:, -self.args.pred_len :, :]
+                test_scores.append(torch.abs(outputs - target).mean(dim=-1).cpu().numpy())
+                test_labels.append(label.cpu().numpy())
 
-        fig, ax = plt.subplots(figsize=(13, 4))
-        ax.plot(indices, scores, label="Anomaly score", linewidth=1)
-        ax.axhline(
-            threshold,
-            linestyle="--",
-            linewidth=1.4,
-            label=f"Threshold = {threshold:.4g}",
+        init_scores = np.concatenate(init_scores, axis=0)
+        test_scores = np.concatenate(test_scores, axis=0)
+        gt = np.concatenate(test_labels, axis=0)
+
+        evaluator = Evaluator(
+            init_scores, gt, test_scores, save_path=result_dir, args=self.args
         )
-        ax.fill_between(
-            indices,
-            0,
-            1,
-            where=anomaly_mask,
-            transform=ax.get_xaxis_transform(),
-            alpha=0.12,
-            step="mid",
-            label="Labeled anomaly",
+        evaluator.evaluate(
+            metrics=self.args.metric,
+            thres_method=self.args.thres_method,
+            smooth_method=self.args.smooth_method,
         )
-        ax.set(
-            xlabel="Test row index",
-            ylabel="Anomaly score",
-            title="Anomaly scores vs. validation threshold",
-        )
-        ax.legend(loc="best")
-        fig.tight_layout()
-        fig.savefig(os.path.join(save_dir, "anomaly_scores.png"), dpi=200)
-        plt.close(fig)
+        
+        return 

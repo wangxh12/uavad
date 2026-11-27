@@ -24,8 +24,10 @@ python -u run.py \
 	--lradj type3 \
     --patience 5 \
     --num_workers 0 \
-    --threshold_method 3sigma \
-    --threshold_sigma 1.0 \
+    --thres_method 3sigma \
+    --thres_args 1.0 \
+	--smooth_method bi_aewma \
+	--smooth_rho 0.1 \
     --gpu 0 \
     --seed 2024 \
     --itr 1
